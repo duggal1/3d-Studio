@@ -7,3 +7,10 @@ dist
 .env*
 !.env.example
 public/decoders
+
+# Local-only agent instructions. Untracked so they stay off the public repo,
+# but kept on disk where local agents still read them. Note these are already
+# in git history and recoverable from any commit that contains them.
+AGENTS.md
+RULES.md
+GIT-SKILLS.md
