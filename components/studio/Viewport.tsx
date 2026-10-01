@@ -563,19 +563,27 @@ const StudioLighting = memo(function StudioLighting({
   refitToken: number;
 }) {
   const keyRef = useRef<THREE.DirectionalLight>(null);
+  const { scene, invalidate } = useThree();
+
+  // drei's <Environment> runs applyProps() on the scene whenever it builds its
+  // environment, and that writes environmentIntensity from its own props. The
+  // value is handed to <Environment> so drei owns it rather than fighting it.
+  useEffect(() => {
+    scene.environmentIntensity = settings.reflection;
+    invalidate();
+  }, [scene, settings.reflection, invalidate]);
 
   // The shadow camera is orthographic, so its frustum has to cover the model
-  // or the contact shadow gets clipped away. Refitting on the rendered bounds
-  // (and on tier change, since the map resolution is tier-dependent) keeps the
-  // texel density high enough for a visible contact edge.
+  // or the contact shadow gets clipped away. The bounds are read from the scene
+  // rather than from the light's parent: the light and the model group are
+  // siblings, so traversing key.parent measured the wrong tree and the frustum
+  // collapsed to nothing.
   useEffect(() => {
     const key = keyRef.current;
     if (!key) return;
 
     const box = new THREE.Box3();
-    const root = key.parent;
-    if (!root) return;
-    root.traverse((object) => {
+    scene.traverse((object) => {
       if (object instanceof THREE.Mesh) box.expandByObject(object);
     });
     if (box.isEmpty()) return;
@@ -607,9 +615,15 @@ const StudioLighting = memo(function StudioLighting({
       key.shadow.map = null;
     }
 
+    // shadow.intensity scales the sampled shadow directly (Three r168+), so
+    // the slider works without toggling castShadow and re-triggering a
+    // recompile of every material in the scene.
     key.shadow.intensity = settings.shadow;
     key.shadow.needsUpdate = true;
-  }, [settings.shadow, quality, refitToken]);
+    key.shadow.autoUpdate = true;
+    key.castShadow = settings.shadow > 0.001;
+    key.intensity = 2.3;
+  }, [settings.shadow, quality, refitToken, scene]);
 
   return (
     <>
@@ -624,7 +638,7 @@ const StudioLighting = memo(function StudioLighting({
         intensity={2.3}
       />
       <directionalLight position={[-5, 2, -4]} intensity={0.7} />
-      <Environment resolution={256} frames={1}>
+      <Environment resolution={256} frames={1} environmentIntensity={settings.reflection}>
         <Lightformer
           form="rect"
           intensity={3}
@@ -654,14 +668,6 @@ const StudioLighting = memo(function StudioLighting({
 // generated environment at once, including the lightformers drei builds it
 // from. Touching material.envMapIntensity instead would mean walking every
 // material in the loaded model on each change.
-function ReflectionScale({ value }: { value: number }) {
-  const { scene } = useThree();
-  useEffect(() => {
-    scene.environmentIntensity = value;
-  }, [scene, value]);
-  return null;
-}
-
 function CameraFriction({ controlsRef }: { controlsRef: MutableRefObject<OrbitControlsImpl | null> }) {
   useFrame((_state, delta) => {
     if (controlsRef.current) {
@@ -764,7 +770,6 @@ export default function Viewport(props: ViewportProps) {
         settings={props.settings}
         refitToken={boundsToken}
       />
-      <ReflectionScale value={props.settings.reflection} />
       <OrbitControls
         ref={controlsRef}
         makeDefault
