@@ -7,6 +7,7 @@ import type {
   AssetMetadata,
   LoopMode,
   PlaybackSnapshot,
+  RenderQuality,
 } from "@/types/studio";
 
 interface FilePanelProps {
@@ -104,21 +105,49 @@ export function AnimationPanel({
 }
 
 interface ViewControlsProps {
-  disabled: boolean;
+  canReset: boolean;
   isFullscreen: boolean;
+  quality: RenderQuality;
+  dpr: number;
+  onQuality: (quality: RenderQuality) => void;
   onReset: () => void;
   onFullscreen: () => void;
 }
 
 export function ViewControls({
-  disabled,
+  canReset,
   isFullscreen,
+  quality,
+  dpr,
+  onQuality,
   onReset,
   onFullscreen,
 }: ViewControlsProps) {
   return (
-    <div className="glass pointer-events-auto absolute right-4 top-4 flex items-center gap-1 rounded-none p-1.5">
-      <button className="ui-button cursor-pointer rounded-none border-0 bg-transparent" type="button" disabled={disabled} onClick={onReset}>
+    <div className="glass pointer-events-auto absolute right-4 top-4 flex items-center gap-1.5 rounded-none p-1.5">
+      <label className="flex items-center gap-2 pl-1 text-[11px] text-white/46">
+        <span className="hidden sm:inline">Quality</span>
+        <select
+          className="ui-select cursor-pointer rounded-none"
+          value={quality}
+          aria-label="Render quality"
+          onChange={(event) => onQuality(event.target.value as RenderQuality)}
+        >
+          <option value="performance">Performance</option>
+          <option value="balanced">Balanced</option>
+          <option value="sharp">Sharp</option>
+        </select>
+      </label>
+
+      <span
+        className="pr-0.5 text-[11px] tabular-nums text-white/34"
+        title="Device pixels per CSS pixel currently rendered"
+      >
+        {dpr.toFixed(2)}×
+      </span>
+
+      <div className="mx-1 h-5 w-px bg-white/10" />
+      <button className="ui-button cursor-pointer rounded-none border-0 bg-transparent" type="button" disabled={!canReset} onClick={onReset}>
         Reset camera
       </button>
       <div className="mx-1.5 h-5 w-px bg-white/10" />

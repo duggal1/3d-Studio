@@ -19,6 +19,7 @@ import type {
   LocalAssetBundle,
   LoopMode,
   PlaybackSnapshot,
+  RenderQuality,
 } from "@/types/studio";
 import {
   AnimationPanel,
@@ -60,6 +61,8 @@ export default function Studio() {
   const [dragging, setDragging] = useState(false);
   const [recording, setRecording] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [quality, setQuality] = useState<RenderQuality>("balanced");
+  const [dpr, setDpr] = useState(1);
   const recorderSupported = useMemo(() => canRecordCanvas(), []);
 
   const loadFiles = useCallback((files: File[]) => {
@@ -92,6 +95,10 @@ export default function Studio() {
 
   const handleError = useCallback((message: string) => {
     setError(message);
+  }, []);
+
+  const handleDprChange = useCallback((nextDpr: number) => {
+    setDpr(nextDpr);
   }, []);
 
   const handleLoading = useCallback((progress: number | null) => {
@@ -207,11 +214,13 @@ export default function Studio() {
           <Viewport
             asset={asset}
             resetToken={resetToken}
+            quality={quality}
             runtimeRef={runtimeRef}
             controlsEnabled={!recording}
             onLoading={handleLoading}
             onLoaded={handleLoaded}
             onPlayback={handlePlayback}
+            onDprChange={handleDprChange}
             onError={handleError}
           />
         </Suspense>
@@ -223,8 +232,11 @@ export default function Studio() {
         {metadata ? <FilePanel metadata={metadata} onOpen={openPicker} /> : null}
 
         <ViewControls
-          disabled={!metadata || recording}
+          canReset={Boolean(metadata) && !recording}
           isFullscreen={isFullscreen}
+          quality={quality}
+          dpr={dpr}
+          onQuality={setQuality}
           onReset={() => setResetToken((value) => value + 1)}
           onFullscreen={() => void toggleFullscreen()}
         />

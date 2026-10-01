@@ -35,15 +35,66 @@ import type {
   LocalAssetBundle,
   LoopMode,
   PlaybackSnapshot,
+  RenderQuality,
 } from "@/types/studio";
+
+// Texture filtering cost scales linearly with anisotropy and the hardware
+// maximum is usually 16x. 8x is visually indistinguishable at the grazing
+// angles that matter and halves worst-case texture sampling on floor/ground
+// planes, which are the usual fill-rate bottleneck in these scenes.
+const MAX_ANISOTROPY = 8;
+
+/**
+ * Idle render-resolution target per quality tier.
+ *
+ * - `sharp` keeps the original behaviour of forcing a ~4K framebuffer. Best
+ *   for stills and high-end GPUs, far too GPU-bound for interactive orbiting.
+ * - `balanced` is the default: native Retina sharpness, never scaled up.
+ * - `performance` renders below one device pixel per CSS pixel and lets the
+ *   canvas upscale. Cheapest way to cut fill rate and orbit latency.
+ */
+function targetDpr(
+  quality: RenderQuality,
+  width: number,
+  height: number,
+): number {
+  const native = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+  if (quality === "performance") return Math.min(native, 1) * 0.75;
+  if (quality === "balanced") return Math.min(native, 2);
+  return Math.max(native, 3840 / width, 2160 / height);
+}
+
+function applyTextureQuality(
+  root: THREE.Object3D,
+  maxAnisotropy: number,
+): void {
+  const limit = Math.min(maxAnisotropy, MAX_ANISOTROPY);
+  root.traverse((object) => {
+    object.frustumCulled = true;
+    if (!(object instanceof THREE.Mesh)) return;
+    const materials = Array.isArray(object.material)
+      ? object.material
+      : [object.material];
+    for (const material of materials) {
+      for (const value of Object.values(material)) {
+        if (value instanceof THREE.Texture && value.anisotropy < limit) {
+          value.anisotropy = limit;
+          value.needsUpdate = true;
+        }
+      }
+    }
+  });
+}
 
 interface ViewportProps {
   asset: LocalAssetBundle | null;
   resetToken: number;
+  quality: RenderQuality;
   runtimeRef: MutableRefObject<AnimationRuntimeHandle | null>;
   onLoading: (progress: number | null) => void;
   onLoaded: (metadata: AssetMetadata, animations: AnimationInfo[]) => void;
   onPlayback: (snapshot: PlaybackSnapshot) => void;
+  onDprChange: (dpr: number) => void;
   onError: (message: string) => void;
   controlsEnabled: boolean;
 }
@@ -345,22 +396,7 @@ function ModelRuntime({
         }
 
         loadedScene = gltf.scene;
-        const maxAnisotropy = gl.capabilities.getMaxAnisotropy();
-        gltf.scene.traverse((object) => {
-          object.frustumCulled = true;
-          if (!(object instanceof THREE.Mesh)) return;
-          const materials = Array.isArray(object.material)
-            ? object.material
-            : [object.material];
-          for (const material of materials) {
-            for (const value of Object.values(material)) {
-              if (value instanceof THREE.Texture && value.anisotropy < maxAnisotropy) {
-                value.anisotropy = maxAnisotropy;
-                value.needsUpdate = true;
-              }
-            }
-          }
-        });
+        applyTextureQuality(gltf.scene, gl.capabilities.getMaxAnisotropy());
 
         // Transmissive objects are invisible through other transmissive
         // objects (e.g. wine inside a glass). Convert nested ones to alpha
@@ -531,16 +567,14 @@ export default function Viewport(props: ViewportProps) {
     const updateResolution = () => {
       const { width, height } = container.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
-      const targetRatio = Math.max(
-        window.devicePixelRatio || 1,
-        3840 / width,
-        2160 / height,
-      );
-      setPixelRatio(hardwareLimit === null ? targetRatio : Math.min(
-        targetRatio,
+      const tierRatio = targetDpr(props.quality, width, height);
+      const resolved = hardwareLimit === null ? tierRatio : Math.min(
+        tierRatio,
         hardwareLimit / width,
         hardwareLimit / height,
-      ));
+      );
+      setPixelRatio(resolved);
+      props.onDprChange(resolved);
     };
     updateResolution();
     const observer = new ResizeObserver(updateResolution);
@@ -550,7 +584,7 @@ export default function Viewport(props: ViewportProps) {
       observer.disconnect();
       window.removeEventListener("resize", updateResolution);
     };
-  }, [hardwareLimit]);
+  }, [hardwareLimit, props.quality, props.onDprChange]);
 
   return (
     <div ref={containerRef} className="h-full w-full">
@@ -562,6 +596,12 @@ export default function Viewport(props: ViewportProps) {
       frameloop={props.controlsEnabled ? "demand" : "always"}
       gl={{
         alpha: false,
+        // R3F builds the WebGLRenderer exactly once ("Set up renderer (one
+        // time only!)"), so this context flag cannot follow the quality tier
+        // at runtime — toggling it would need a Canvas remount that throws
+        // away the loaded model. MSAA stays on: at the performance tier's
+        // sub-native dpr the upscale is what actually softens edges, and the
+        // fill-rate win comes from the dpr tiers below.
         antialias: true,
         depth: true,
         stencil: false,

@@ -1,5 +1,7 @@
 export type LoopMode = "once" | "repeat" | "pingpong";
 
+export type RenderQuality = "performance" | "balanced" | "sharp";
+
 export interface AnimationInfo {
   index: number;
   name: string;
