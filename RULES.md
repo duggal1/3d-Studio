@@ -478,7 +478,7 @@ Research should maximize **decision-changing evidence**, not browser activity.
 
 ## 15. Git Commit Rules — Commit Directly to Main, Every Task
 
-Every task commits directly to `main`. No branches by default. Work, then:
+Every change gets added, committed, and pushed. Directly to `main`. No branches by default:
 
 ```
 git add .
@@ -486,7 +486,17 @@ git commit -m "message"
 git push
 ```
 
-No matter how small. A one-line typo fix gets committed. A renamed variable gets committed. No batching for later. No "too minor to commit."
+**Commit as you go. Not at the end.** The moment a coherent change lands, push it. There is no "finish the task, then add and push" phase — that reasoning is explicitly wrong. Every edit is followed by add → commit → push, in that order, immediately.
+
+This includes:
+- Every change, no matter how small. A one-line typo fix gets pushed. A renamed variable gets pushed. No "too minor to commit."
+- **Work in progress, including code that does not compile yet.** Push it and say so in the message. A worker handing back a half-built feature does not leave it uncommitted for someone else to find.
+- **Untracked new files** — not "pending", staged and pushed when created.
+- Changes from sub-agents and parallel workers, under the same rule rather than a later sweep.
+
+No batching. No "I'll batch this with the next change." No "this is a continuation so it can ride along."
+
+A green build is a nice-to-have. An unpushed change is a lost change. When those conflict, push and mark the message honestly. Nobody has to reverse-engineer what you left behind.
 
 Do NOT create a branch unless explicitly asked. Do NOT open a PR or merge unless explicitly asked. Branching and merging by default is slow — `main` is the default target, every time.
 
@@ -502,6 +512,15 @@ Good: "Fix button padding breaking on mobile"
 
 If you can't say it in 12 words, the commit is too big — split it. No AI filler. Direct, sharp, plain language.
 
+### Don't Defer the Push
+
+The most common way to break this rule is believing the work isn't finished, so there is nothing to push yet. That reasoning is wrong.
+
+- "I'll push when the task is complete" — no. Push now, push each change.
+- "It doesn't typecheck yet, so I can't commit it" — yes you can. Commit it and put that in the message: `Add stills capture, WIP does not typecheck yet`.
+- "The sub-agent is still working on it" — commit what exists now; commit the rest when it lands.
+- "It's all one feature so it should be one commit" — no. Multiple commits, one per coherent change, each pushed.
+
 ### No Repo? Stop and Ask
 
 No repo initialized, or no remote configured — don't improvise. Don't create a repo, don't guess at a remote. Stop and ask. Committing to the wrong remote breaks trees, and unwinding that costs more than five seconds of asking.
@@ -515,6 +534,8 @@ Never commit secrets — `.env` files, API keys, tokens, credentials. If a commi
 Everything else is fair game: diff, log, stash, checkout, pull — whatever the task needs. The forbidden list above is the entire boundary. A branch, PR, or merge happens only when explicitly asked for.
 
 You're not working alone. Other agents touch this repo too. Before starting work, pull. Before pushing, check `git status` and pull again — merge others' commits cleanly instead of stomping them. A broken tree because you skipped a pull is on you.
+
+Other agents' uncommitted work is not a reason to hold yours back. If `git status` shows work that isn't yours, `git add .` and commit it, with a message that says whose it is and whether it builds. Do not leave another agent's changes sitting uncommitted.
 
 ## Core Standard
 
