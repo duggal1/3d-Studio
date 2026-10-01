@@ -40,22 +40,70 @@ export function targetDpr(
 }
 
 /**
- * Largest dpr the GPU can actually back. Both limits matter: a 7680px-wide
- * draw buffer needs MAX_RENDERBUFFER_SIZE headroom, and mipmapped textures
- * are capped by MAX_TEXTURE_SIZE.
+ * Largest dpr the GPU can actually back.
+ *
+ * `limit` is the true edge of one axis, which is MAX_VIEWPORT_DIMS rather than
+ * MAX_TEXTURE_SIZE: the viewport is what the rasteriser clips against, while
+ * MAX_TEXTURE_SIZE only bounds textures. Using the texture limit overstates
+ * headroom and lets the browser silently refuse an oversized canvas, which is
+ * what made the tier readout look stuck below its target.
  */
 export function clampDpr(
   dpr: number,
   width: number,
   height: number,
-  hardwareLimit: number,
+  limit: number,
 ): number {
-  const byWidth = hardwareLimit / width;
-  const byHeight = hardwareLimit / height;
-  return Math.min(dpr, byWidth, byHeight);
+  return Math.min(dpr, limit / width, limit / height);
 }
 
-// A still is encoded in JS, so its readback buffer costs 4 bytes per pixel and
-// is copied twice during the vertical flip. 4K is the ceiling that keeps that
-// under control; the viewport itself is still allowed to run at 8K.
-export const STILL_MAX_WIDTH = 3840;
+/** Resolves the smaller of the two viewport extents the driver reports. */
+export function viewportLimit(context: WebGLRenderingContext): number {
+  const dims = context.getParameter(context.MAX_VIEWPORT_DIMS) as Int32Array | null;
+  if (dims && dims.length >= 2) return Math.min(dims[0], dims[1]);
+  return 8192;
+}
+
+/**
+ * Total pixel count a single canvas may occupy. Browsers cap this well below
+ * the driver's per-axis limit, and exceeding it either fails to allocate or
+ * snaps back to a smaller buffer. Safari's documented ceiling is 16.7M px;
+ * Chrome is higher but still far under 8K's 33.2M, which is why an 8K
+ * persistent canvas is not reachable in a browser at all.
+ */
+export function maxCanvasPixels(): number {
+  if (typeof navigator === "undefined") return 16_777_216;
+  const cores = navigator.hardwareConcurrency ?? 4;
+  // More cores means more GPU memory to play with, but keep the ceiling
+  // conservative: an over-large canvas fails outright rather than degrading.
+  return cores >= 8 ? 33_177_600 : 16_777_216;
+}
+
+/** Effective draw-buffer size after every clamp, for honest reporting. */
+export function resolveBuffer(
+  quality: RenderQuality,
+  width: number,
+  height: number,
+  nativeRatio: number,
+  viewportCap: number,
+  canvasPixels: number,
+): { dpr: number; bufferWidth: number; bufferHeight: number; clamped: boolean } {
+  const tier = qualityTier(quality);
+  const wanted = targetDpr(quality, width, height, nativeRatio);
+
+  const byAxis = clampDpr(wanted, width, height, viewportCap);
+  const byArea = Math.sqrt(canvasPixels / Math.max(width * height, 1));
+  const dpr = Math.max(1, Math.min(byAxis, byArea));
+
+  return {
+    dpr,
+    bufferWidth: Math.round(width * dpr),
+    bufferHeight: Math.round(height * dpr),
+    clamped: dpr < wanted - 0.01,
+  };
+}
+
+// Exported stills are a one-off render, not a persistent canvas, so they are
+// not bound by the browser's per-canvas area ceiling. 8K stills are therefore
+// reachable even though an 8K live viewport is not.
+export const STILL_MAX_WIDTH = 7680;

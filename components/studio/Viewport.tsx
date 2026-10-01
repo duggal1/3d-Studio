@@ -25,7 +25,13 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { planCinematicShots } from "@/lib/cinematic";
 import { specularGlossinessPlugin } from "@/lib/gltf-specular-glossiness";
 import { buildMetadata, disposeScene } from "@/lib/metadata";
-import { clampDpr, qualityTier, STILL_MAX_WIDTH, targetDpr } from "@/lib/render-scale";
+import {
+  maxCanvasPixels,
+  qualityTier,
+  resolveBuffer,
+  STILL_MAX_WIDTH,
+  viewportLimit,
+} from "@/lib/render-scale";
 import { captureStill } from "@/lib/stills";
 import { installThreeClockCompat } from "@/lib/three-compat";
 import { resolveNestedTransmission } from "@/lib/transmission-nesting";
@@ -38,6 +44,7 @@ import type {
   LocalAssetBundle,
   LoopMode,
   PlaybackSnapshot,
+  RenderBuffer,
   RenderQuality,
   RenderSettings,
   StillFormat,
@@ -85,7 +92,7 @@ interface ViewportProps {
   onLoading: (progress: number | null) => void;
   onLoaded: (metadata: AssetMetadata, animations: AnimationInfo[]) => void;
   onPlayback: (snapshot: PlaybackSnapshot) => void;
-  onDprChange: (dpr: number) => void;
+  onBufferChange: (buffer: RenderBuffer) => void;
   onError: (message: string) => void;
   controlsEnabled: boolean;
 }
@@ -707,12 +714,20 @@ export default function Viewport(props: ViewportProps) {
       const { width, height } = container.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
       const native = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
-      const tierRatio = targetDpr(props.quality, width, height, native);
-      const resolved = hardwareLimit === null
-        ? tierRatio
-        : clampDpr(tierRatio, width, height, hardwareLimit);
-      setPixelRatio(resolved);
-      props.onDprChange(resolved);
+      // Before the context exists, fall back to the native ratio so the first
+      // paint is not sized against a guess.
+      const resolved: RenderBuffer = hardwareLimit === null
+        ? { dpr: native, bufferWidth: 0, bufferHeight: 0, clamped: false }
+        : resolveBuffer(
+          props.quality,
+          width,
+          height,
+          native,
+          hardwareLimit,
+          maxCanvasPixels(),
+        );
+      setPixelRatio(resolved.dpr);
+      props.onBufferChange(resolved);
     };
     updateResolution();
     const observer = new ResizeObserver(updateResolution);
@@ -722,7 +737,7 @@ export default function Viewport(props: ViewportProps) {
       observer.disconnect();
       window.removeEventListener("resize", updateResolution);
     };
-  }, [hardwareLimit, props.quality, props.onDprChange]);
+  }, [hardwareLimit, props.quality, props.onBufferChange]);
 
   return (
     <div ref={containerRef} className="h-full w-full">
@@ -748,11 +763,10 @@ export default function Viewport(props: ViewportProps) {
       }}
       onCreated={({ gl }) => {
         const context = gl.getContext();
-        const renderbufferLimit: unknown = context.getParameter(context.MAX_RENDERBUFFER_SIZE);
-        setHardwareLimit(Math.min(
-          gl.capabilities.maxTextureSize,
-          typeof renderbufferLimit === "number" ? renderbufferLimit : gl.capabilities.maxTextureSize,
-        ));
+        // MAX_VIEWPORT_DIMS is what the rasteriser actually clips the draw
+        // buffer against. MAX_TEXTURE_SIZE describes textures, not the
+        // viewport, so it overstates the headroom for a large framebuffer.
+        setHardwareLimit(viewportLimit(context));
         gl.outputColorSpace = THREE.SRGBColorSpace;
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1;

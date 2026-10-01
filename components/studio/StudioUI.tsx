@@ -2,11 +2,13 @@
 
 import type { CSSProperties } from "react";
 import { formatBytes, formatTime } from "@/lib/asset";
+import type { QualityTier } from "@/lib/render-scale";
 import type {
   AnimationInfo,
   AssetMetadata,
   LoopMode,
   PlaybackSnapshot,
+  RenderBuffer,
   ShotPreview,
   StillFormat,
 } from "@/types/studio";
@@ -214,7 +216,8 @@ export function ShotPanel({
 interface ViewControlsProps {
   canReset: boolean;
   isFullscreen: boolean;
-  dpr: number;
+  buffer: RenderBuffer;
+  tier: QualityTier;
   onReset: () => void;
   onFullscreen: () => void;
 }
@@ -222,17 +225,31 @@ interface ViewControlsProps {
 export function ViewControls({
   canReset,
   isFullscreen,
-  dpr,
+  buffer,
+  tier,
   onReset,
   onFullscreen,
 }: ViewControlsProps) {
+  const rendered = buffer.bufferWidth > 0
+    ? `${buffer.bufferWidth}×${buffer.bufferHeight}`
+    : `${tier.label} target`;
+
   return (
     <div className="glass pointer-events-auto absolute right-4 top-4 flex items-center rounded-none">
       <span
         className="px-2.5 text-[11px] tabular-nums text-white/34"
-        title="Device pixels per CSS pixel currently rendered"
+        title={
+          buffer.clamped
+            ? `Capped by this display's canvas limits. Target ${tier.width}×${tier.height}.`
+            : `Rendered pixels per CSS pixel × actual draw buffer. Target ${tier.width}×${tier.height}.`
+        }
       >
-        {dpr.toFixed(2)}×
+        {rendered}
+        {buffer.clamped ? (
+          <span className="ml-1.5 text-white/24" aria-label="capped by display">
+            max
+          </span>
+        ) : null}
       </span>
 
       <div className="h-5 w-px bg-white/10" />

@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 import { createLocalAssetBundle } from "@/lib/asset";
-import { QUALITY_TIERS } from "@/lib/render-scale";
+import { QUALITY_TIERS, qualityTier } from "@/lib/render-scale";
 import { canRecordCanvas, downloadBlob, recordCanvasSequence } from "@/lib/recording";
 import { availableStillFormats, downloadStill } from "@/lib/stills";
 import type {
@@ -21,6 +21,7 @@ import type {
   LocalAssetBundle,
   LoopMode,
   PlaybackSnapshot,
+  RenderBuffer,
   RenderQuality,
   RenderSettings,
   ShotPreview,
@@ -70,7 +71,12 @@ export default function Studio() {
   const [recording, setRecording] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [quality, setQuality] = useState<RenderQuality>("2k");
-  const [dpr, setDpr] = useState(1);
+  const [buffer, setBuffer] = useState<RenderBuffer>({
+    dpr: 1,
+    bufferWidth: 0,
+    bufferHeight: 0,
+    clamped: false,
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<RenderSettings>({
     shadow: 0.55,
@@ -125,8 +131,8 @@ export default function Studio() {
     setError(message);
   }, []);
 
-  const handleDprChange = useCallback((nextDpr: number) => {
-    setDpr(nextDpr);
+  const handleBufferChange = useCallback((next: RenderBuffer) => {
+    setBuffer(next);
   }, []);
 
   const handleLoading = useCallback((progress: number | null) => {
@@ -308,7 +314,7 @@ export default function Studio() {
             onLoading={handleLoading}
             onLoaded={handleLoaded}
             onPlayback={handlePlayback}
-            onDprChange={handleDprChange}
+            onBufferChange={handleBufferChange}
             onError={handleError}
           />
         </Suspense>
@@ -342,7 +348,8 @@ export default function Studio() {
         <ViewControls
           canReset={Boolean(metadata) && !recording}
           isFullscreen={isFullscreen}
-            dpr={dpr}
+            buffer={buffer}
+            tier={qualityTier(quality)}
             onReset={() => setResetToken((value) => value + 1)}
           onFullscreen={() => void toggleFullscreen()}
         />

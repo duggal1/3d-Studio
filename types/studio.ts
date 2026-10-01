@@ -4,6 +4,14 @@ export type LoopMode = "once" | "repeat" | "pingpong";
 // downsampled to the canvas by the compositor. See lib/render-scale.ts.
 export type RenderQuality = "2k" | "4k" | "8k";
 
+/** Actual draw-buffer state after every hardware and browser clamp. */
+export interface RenderBuffer {
+  dpr: number;
+  bufferWidth: number;
+  bufferHeight: number;
+  clamped: boolean;
+}
+
 export interface RenderSettings {
   // 0 lifts the shadow contribution off surfaces entirely, 1 is full density.
   shadow: number;
