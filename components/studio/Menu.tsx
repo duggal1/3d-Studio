@@ -71,7 +71,7 @@ export default function Menu<T extends string>({
           id={listId}
           role="listbox"
           aria-label={label}
-          className="absolute bottom-full right-0 z-30 mb-1 min-w-[168px] bg-black/78 py-1 backdrop-blur-2xl"
+          className="glass-plain absolute bottom-full right-0 z-30 mb-1 w-max min-w-[168px] py-1"
         >
           {options.map((option) => {
             const active = option.value === value;
@@ -81,7 +81,7 @@ export default function Menu<T extends string>({
                 type="button"
                 role="option"
                 aria-selected={active}
-                className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left text-[11px] transition-colors duration-150 hover:bg-white/10"
+                className="flex w-full cursor-pointer items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[11px] transition-colors duration-150 hover:bg-white/10"
                 data-active={active}
                 onClick={() => {
                   onChange(option.value);
@@ -93,14 +93,10 @@ export default function Menu<T extends string>({
                   strokeWidth={2.25}
                   aria-hidden
                 />
-                <span className="min-w-0">
-                  <span className={active ? "text-white/92" : "text-white/64"}>
-                    {option.label}
-                  </span>
-                  {option.note ? (
-                    <span className="ml-1.5 text-white/34">{option.note}</span>
-                  ) : null}
-                </span>
+                <span>{option.label}</span>
+                {option.note ? (
+                  <span className="text-white/34">{option.note}</span>
+                ) : null}
               </button>
             );
           })}
