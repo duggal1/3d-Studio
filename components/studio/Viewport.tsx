@@ -698,10 +698,13 @@ export default function Viewport(props: ViewportProps) {
   const [pixelRatio, setPixelRatio] = useState(2);
   const [moving, setMoving] = useState(false);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The camera keeps drifting for a moment after the pointer is released, so
+  // the settle window has to outlast OrbitControls' damping. Snapping back to
+  // the full supersampled buffer too early renders an expensive frame mid-glide.
   const handleCameraChange = useCallback(() => {
     setMoving(true);
     if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
-    settleTimerRef.current = setTimeout(() => setMoving(false), 180);
+    settleTimerRef.current = setTimeout(() => setMoving(false), 420);
   }, []);
 
   useEffect(() => () => {
@@ -754,7 +757,11 @@ export default function Viewport(props: ViewportProps) {
       dpr={moving && props.controlsEnabled
         ? Math.min(pixelRatio, typeof window === "undefined" ? 1 : window.devicePixelRatio || 1)
         : pixelRatio}
-      frameloop={props.controlsEnabled ? "demand" : "always"}
+      // "always" re-rendered the full supersampled buffer every frame even
+      // when nothing was moving. "demand" renders on invalidation instead,
+      // which the orbit controls and animation runtime both drive, and stops
+      // a static scene from burning a frame budget it does not need.
+      frameloop="demand"
       gl={{
         alpha: false,
         // R3F builds the WebGLRenderer exactly once ("Set up renderer (one
