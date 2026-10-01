@@ -25,6 +25,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { planCinematicShots } from "@/lib/cinematic";
 import { specularGlossinessPlugin } from "@/lib/gltf-specular-glossiness";
 import { buildMetadata, disposeScene } from "@/lib/metadata";
+import { clampDpr, qualityTier, STILL_MAX_WIDTH, targetDpr } from "@/lib/render-scale";
 import { captureStill } from "@/lib/stills";
 import { installThreeClockCompat } from "@/lib/three-compat";
 import { resolveNestedTransmission } from "@/lib/transmission-nesting";
@@ -38,6 +39,7 @@ import type {
   LoopMode,
   PlaybackSnapshot,
   RenderQuality,
+  RenderSettings,
   StillFormat,
   StillShot,
 } from "@/types/studio";
@@ -48,31 +50,6 @@ import type {
 // planes, which are the usual fill-rate bottleneck in these scenes.
 const MAX_ANISOTROPY = 8;
 
-// Demo stills are fixed 16:9 at 1600px. Big enough to judge a shot, small
-// enough that five of them encode without a visible wait.
-const STILL_WIDTH = 1600;
-const STILL_HEIGHT = 900;
-
-/**
- * Idle render-resolution target per quality tier.
- *
- * - `sharp` keeps the original behaviour of forcing a ~4K framebuffer. Best
- *   for stills and high-end GPUs, far too GPU-bound for interactive orbiting.
- * - `balanced` is the default: native Retina sharpness, never scaled up.
- * - `performance` renders below one device pixel per CSS pixel and lets the
- *   canvas upscale. Cheapest way to cut fill rate and orbit latency.
- */
-function targetDpr(
-  quality: RenderQuality,
-  width: number,
-  height: number,
-): number {
-  const native = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
-  if (quality === "performance") return Math.min(native, 1) * 0.75;
-  if (quality === "balanced") return Math.min(native, 2);
-  return Math.max(native, 3840 / width, 2160 / height);
-}
-
 function applyTextureQuality(
   root: THREE.Object3D,
   maxAnisotropy: number,
@@ -81,6 +58,10 @@ function applyTextureQuality(
   root.traverse((object) => {
     object.frustumCulled = true;
     if (!(object instanceof THREE.Mesh)) return;
+    // Both flags: the model has to write into the shadow map and has to read
+    // it, otherwise the contact shadow is either missing or unlit.
+    object.castShadow = true;
+    object.receiveShadow = true;
     const materials = Array.isArray(object.material)
       ? object.material
       : [object.material];
@@ -99,6 +80,7 @@ interface ViewportProps {
   asset: LocalAssetBundle | null;
   resetToken: number;
   quality: RenderQuality;
+  settings: RenderSettings;
   runtimeRef: MutableRefObject<AnimationRuntimeHandle | null>;
   onLoading: (progress: number | null) => void;
   onLoaded: (metadata: AssetMetadata, animations: AnimationInfo[]) => void;
@@ -168,19 +150,25 @@ function frameCamera(
 function ModelRuntime({
   asset,
   resetToken,
+  quality,
   controlsRef,
   runtimeRef,
   onLoading,
   onLoaded,
   onPlayback,
   onError,
+  onBoundsSettled,
 }: ViewportProps & {
   controlsRef: MutableRefObject<OrbitControlsImpl | null>;
+  onBoundsSettled: () => void;
 }) {
   const { camera, gl, scene, invalidate } = useThree();
   const [model, setModel] = useState<LoadedModel | null>(null);
   const sceneRef = useRef<THREE.Group | null>(null);
   const shootTokenRef = useRef(0);
+  // Read inside the stable imperative handle, which never closes over props.
+  const qualityRef = useRef(quality);
+  qualityRef.current = quality;
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const clipsRef = useRef<THREE.AnimationClip[]>([]);
   const activeActionRef = useRef<THREE.AnimationAction | null>(null);
@@ -370,6 +358,12 @@ function ModelRuntime({
         const plan = planCinematicShots(group, bounds, count, aspect);
         const shots: StillShot[] = [];
 
+        // A still inherits the active tier's resolution, capped by the encode
+        // budget, so 4k/8k actually show up in the exported image.
+        const tier = qualityTier(qualityRef.current);
+        const stillWidth = Math.min(tier.width, STILL_MAX_WIDTH);
+        const stillHeight = Math.round(stillWidth * (tier.height / tier.width));
+
         for (const [index, shot] of plan.entries()) {
           if (shootTokenRef.current !== token) break;
           shots.push({
@@ -383,13 +377,13 @@ function ModelRuntime({
               position: shot.position,
               target: shot.target,
               fov: shot.fov,
-              width: STILL_WIDTH,
-              height: STILL_HEIGHT,
+              width: stillWidth,
+              height: stillHeight,
               format,
               quality,
             }),
-            width: STILL_WIDTH,
-            height: STILL_HEIGHT,
+            width: stillWidth,
+            height: stillHeight,
           });
         }
 
@@ -477,6 +471,7 @@ function ModelRuntime({
         }));
 
         setModel({ gltf, center, size });
+        onBoundsSettled();
         onLoaded(buildMetadata(gltf, asset), animations);
         publishPlayback({ selectedIndex: 0, isPlaying: false, progress: 0 });
         onLoading(1);
@@ -558,12 +553,76 @@ function ModelRuntime({
   );
 }
 
-const StudioLighting = memo(function StudioLighting() {
+const StudioLighting = memo(function StudioLighting({
+  quality,
+  settings,
+  refitToken,
+}: {
+  quality: RenderQuality;
+  settings: RenderSettings;
+  refitToken: number;
+}) {
+  const keyRef = useRef<THREE.DirectionalLight>(null);
+
+  // The shadow camera is orthographic, so its frustum has to cover the model
+  // or the contact shadow gets clipped away. Refitting on the rendered bounds
+  // (and on tier change, since the map resolution is tier-dependent) keeps the
+  // texel density high enough for a visible contact edge.
+  useEffect(() => {
+    const key = keyRef.current;
+    if (!key) return;
+
+    const box = new THREE.Box3();
+    const root = key.parent;
+    if (!root) return;
+    root.traverse((object) => {
+      if (object instanceof THREE.Mesh) box.expandByObject(object);
+    });
+    if (box.isEmpty()) return;
+
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const extent = Math.max(size.x, size.y, size.z, 0.001);
+    const distance = extent * 2.4;
+
+    key.position.copy(center).add(new THREE.Vector3(0.58, 0.72, 0.42).normalize().multiplyScalar(distance));
+    key.target.position.copy(center);
+    key.target.updateMatrixWorld();
+
+    const camera = key.shadow.camera;
+    camera.left = -extent * 0.85;
+    camera.right = extent * 0.85;
+    camera.top = extent * 0.85;
+    camera.bottom = -extent * 0.85;
+    camera.near = distance * 0.05;
+    camera.far = distance * 2.2;
+    camera.updateProjectionMatrix();
+
+    // A denser map at higher tiers: the extra pixels are already being paid
+    // for, and the shadow is the one pass that shows it most obviously.
+    const resolution = quality === "8k" ? 4096 : 2048;
+    if (key.shadow.mapSize.width !== resolution) {
+      key.shadow.mapSize.setScalar(resolution);
+      key.shadow.map?.dispose();
+      key.shadow.map = null;
+    }
+
+    key.shadow.intensity = settings.shadow;
+    key.shadow.needsUpdate = true;
+  }, [settings.shadow, quality, refitToken]);
+
   return (
     <>
       <ambientLight intensity={0.22} />
       <hemisphereLight args={[0xffffff, 0x222222, 1.35]} />
-      <directionalLight position={[4, 7, 5]} intensity={2.3} />
+      <directionalLight
+        ref={keyRef}
+        castShadow
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.02}
+        position={[4, 7, 5]}
+        intensity={2.3}
+      />
       <directionalLight position={[-5, 2, -4]} intensity={0.7} />
       <Environment resolution={256} frames={1}>
         <Lightformer
@@ -591,6 +650,18 @@ const StudioLighting = memo(function StudioLighting() {
   );
 });
 
+// `environmentIntensity` is the one knob that scales every reflection off the
+// generated environment at once, including the lightformers drei builds it
+// from. Touching material.envMapIntensity instead would mean walking every
+// material in the loaded model on each change.
+function ReflectionScale({ value }: { value: number }) {
+  const { scene } = useThree();
+  useEffect(() => {
+    scene.environmentIntensity = value;
+  }, [scene, value]);
+  return null;
+}
+
 function CameraFriction({ controlsRef }: { controlsRef: MutableRefObject<OrbitControlsImpl | null> }) {
   useFrame((_state, delta) => {
     if (controlsRef.current) {
@@ -616,6 +687,12 @@ export default function Viewport(props: ViewportProps) {
     if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
   }, []);
   const [hardwareLimit, setHardwareLimit] = useState<number | null>(null);
+  // Bumped once the model graph is in the scene so the key light refits its
+  // shadow frustum to the actual geometry instead of running empty.
+  const [boundsToken, setBoundsToken] = useState(0);
+  const handleBoundsSettled = useCallback(() => {
+    setBoundsToken((value) => value + 1);
+  }, []);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -623,12 +700,11 @@ export default function Viewport(props: ViewportProps) {
     const updateResolution = () => {
       const { width, height } = container.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
-      const tierRatio = targetDpr(props.quality, width, height);
-      const resolved = hardwareLimit === null ? tierRatio : Math.min(
-        tierRatio,
-        hardwareLimit / width,
-        hardwareLimit / height,
-      );
+      const native = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+      const tierRatio = targetDpr(props.quality, width, height, native);
+      const resolved = hardwareLimit === null
+        ? tierRatio
+        : clampDpr(tierRatio, width, height, hardwareLimit);
       setPixelRatio(resolved);
       props.onDprChange(resolved);
     };
@@ -675,10 +751,20 @@ export default function Viewport(props: ViewportProps) {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1;
         gl.setClearColor("#080808", 1);
+        // Required for the key light's contact shadow. PCF soft over PCF
+        // because the budgeted 2k-8k framebuffer already handles most edge
+        // aliasing on its own.
+        gl.shadowMap.enabled = true;
+        gl.shadowMap.type = THREE.PCFSoftShadowMap;
       }}
     >
       <CameraFriction controlsRef={controlsRef} />
-      <StudioLighting />
+      <StudioLighting
+        quality={props.quality}
+        settings={props.settings}
+        refitToken={boundsToken}
+      />
+      <ReflectionScale value={props.settings.reflection} />
       <OrbitControls
         ref={controlsRef}
         makeDefault
@@ -693,7 +779,13 @@ export default function Viewport(props: ViewportProps) {
         maxPolarAngle={Math.PI}
         screenSpacePanning
       />
-      {props.asset ? <ModelRuntime {...props} controlsRef={controlsRef} /> : null}
+      {props.asset ? (
+        <ModelRuntime
+          {...props}
+          controlsRef={controlsRef}
+          onBoundsSettled={handleBoundsSettled}
+        />
+      ) : null}
     </Canvas>
     </div>
   );

@@ -1,6 +1,16 @@
 export type LoopMode = "once" | "repeat" | "pingpong";
 
-export type RenderQuality = "performance" | "balanced" | "sharp";
+// Resolution tiers are supersampling budgets: 2k/4k/8k of rendered pixels,
+// downsampled to the canvas by the compositor. See lib/render-scale.ts.
+export type RenderQuality = "2k" | "4k" | "8k";
+
+export interface RenderSettings {
+  // 0 lifts the shadow contribution off surfaces entirely, 1 is full density.
+  shadow: number;
+  // Drives scene.environmentIntensity, so it scales every reflection off the
+  // generated environment without touching material envMapIntensity.
+  reflection: number;
+}
 
 // PNG is intentionally absent: a lit 3D still is roughly 8x heavier lossless
 // for no visible gain.

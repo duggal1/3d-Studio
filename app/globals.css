@@ -113,7 +113,9 @@ button {
 
 .ui-button:focus-visible,
 .ui-select:focus-visible,
-.timeline:focus-visible {
+.timeline:focus-visible,
+.slider:focus-visible,
+[role="listbox"] button:focus-visible {
   outline: 1px solid rgba(255, 255, 255, 0.48);
   outline-offset: 2px;
 }
@@ -166,6 +168,53 @@ button {
   background-color: #101010;
   color: rgba(255, 255, 255, 0.85);
   border-radius: 0;
+}
+
+.slider {
+  height: 14px;
+  cursor: pointer;
+  appearance: none;
+  background: transparent;
+}
+
+.slider::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.82) 0,
+    rgba(255, 255, 255, 0.82) var(--fill, 0%),
+    rgba(255, 255, 255, 0.17) var(--fill, 0%),
+    rgba(255, 255, 255, 0.17) 100%
+  );
+}
+
+.slider::-webkit-slider-thumb {
+  width: 7px;
+  height: 12px;
+  margin-top: -5px;
+  appearance: none;
+  border: 0;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.slider::-moz-range-track {
+  height: 2px;
+  background: rgba(255, 255, 255, 0.17);
+}
+
+.slider::-moz-range-progress {
+  height: 2px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.slider::-moz-range-thumb {
+  width: 7px;
+  height: 12px;
+  border: 0;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.94);
 }
 
 .timeline {

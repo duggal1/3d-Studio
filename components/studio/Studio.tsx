@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { createLocalAssetBundle } from "@/lib/asset";
+import { QUALITY_TIERS } from "@/lib/render-scale";
 import { canRecordCanvas, downloadBlob, recordCanvasSequence } from "@/lib/recording";
 import { availableStillFormats, downloadStill } from "@/lib/stills";
 import type {
@@ -21,9 +22,12 @@ import type {
   LoopMode,
   PlaybackSnapshot,
   RenderQuality,
+  RenderSettings,
   ShotPreview,
   StillFormat,
 } from "@/types/studio";
+import Menu, { type MenuOption } from "./Menu";
+import SettingsPanel from "./SettingsPanel";
 import {
   AnimationPanel,
   DropOverlay,
@@ -65,8 +69,13 @@ export default function Studio() {
   const [dragging, setDragging] = useState(false);
   const [recording, setRecording] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [quality, setQuality] = useState<RenderQuality>("balanced");
+  const [quality, setQuality] = useState<RenderQuality>("2k");
   const [dpr, setDpr] = useState(1);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<RenderSettings>({
+    shadow: 0.55,
+    reflection: 1,
+  });
   const [shots, setShots] = useState<ShotPreview[]>([]);
   const [shooting, setShooting] = useState(false);
   const [shotCount, setShotCount] = useState(5);
@@ -293,6 +302,7 @@ export default function Studio() {
             asset={asset}
             resetToken={resetToken}
             quality={quality}
+            settings={settings}
             runtimeRef={runtimeRef}
             controlsEnabled={!recording}
             onLoading={handleLoading}
@@ -308,6 +318,8 @@ export default function Studio() {
         {!asset ? <EmptyState onOpen={openPicker} /> : null}
 
         {metadata ? <FilePanel metadata={metadata} onOpen={openPicker} /> : null}
+
+
 
         {shots.length > 0 || shooting ? (
           <ShotPanel
@@ -330,10 +342,8 @@ export default function Studio() {
         <ViewControls
           canReset={Boolean(metadata) && !recording}
           isFullscreen={isFullscreen}
-          quality={quality}
-          dpr={dpr}
-          onQuality={setQuality}
-          onReset={() => setResetToken((value) => value + 1)}
+            dpr={dpr}
+            onReset={() => setResetToken((value) => value + 1)}
           onFullscreen={() => void toggleFullscreen()}
         />
 
@@ -364,6 +374,32 @@ export default function Studio() {
 
         {loadingProgress !== null ? <LoadingIndicator progress={loadingProgress} /> : null}
         {error ? <ErrorToast message={error} onDismiss={() => setError(null)} /> : null}
+      </div>
+
+      <div className="glass pointer-events-auto absolute bottom-4 right-4 z-20 flex items-center rounded-none">
+        <Menu<RenderQuality>
+          label="Quality"
+          value={quality}
+          options={QUALITY_TIERS.map<MenuOption<RenderQuality>>((tier) => ({
+            value: tier.id,
+            label: tier.label,
+            note: tier.note,
+          }))}
+          onChange={setQuality}
+        />
+        <div className="h-5 w-px bg-white/10" />
+        <button
+          type="button"
+          className="h-[30px] cursor-pointer px-2.5 text-[11px] text-white/60 transition-colors duration-150 hover:bg-white/8 hover:text-white/92"
+          aria-expanded={settingsOpen}
+          onClick={() => setSettingsOpen((current) => !current)}
+        >
+          Settings
+        </button>
+
+        {settingsOpen ? (
+          <SettingsPanel settings={settings} onChange={setSettings} />
+        ) : null}
       </div>
 
       <DropOverlay visible={dragging} />

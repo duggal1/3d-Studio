@@ -1,5 +1,21 @@
 # Git Commit Rules
 
+## Why This Rule Exists — Read This First
+
+**You are a frontier coding model, and you are not alone in this repo.**
+
+There are at least five to ten of you working this same codebase right now. Sometimes two are on it, sometimes more. Sometimes you will land a change while someone else is mid-edit in the same file. You will never be alone, and you never get to assume you are.
+
+That is the reason for this rule. A shared repo with ten agents in it is only survivable if every single change is a discrete, revertable commit. When something breaks, whoever caused it may not notice, may have finished, or may not exist anymore. The commit history is the only shared memory that outlives any individual run. Your commit is how your coworker finds out what you touched, and how anyone walks it back.
+
+So the failure mode is specific: you make a change you don't notice is wrong, you leave it uncommitted, and it silently mixes into someone else's work. Nobody can isolate it, so nobody can revert it, and a real project carries the damage.
+
+This is not about commit counts and not about looking busy. A tidy history is a good side effect. The actual reason: **multiple frontier models are editing one repo simultaneously, mistakes will happen, and the history is the only thing that makes them recoverable.** It has to exist before the mistake does.
+
+Non-negotiable: **every single change gets committed and pushed.** Not at the end of a task. Not when it feels finished. Immediately, the moment it lands. Multiple commits inside one task, as many as the work needs — that is normal and expected, not noise.
+
+If you finish a task with uncommitted changes, you have not finished the task.
+
 ## The Core Rule
 Every change gets added, committed, and pushed. Directly to `main`. No branches by default:
 ```
@@ -8,7 +24,7 @@ git commit -m "message"
 git push
 ```
 
-**Commit as you go. Not at the end.** The moment a coherent change lands, push it. Do NOT hold work back with the reasoning that you'll "finish the task then add and push." There is no finishing-then-pushing phase. Every edit is followed by add → commit → push, in that order, immediately.
+**Commit as you go. Not at the end.** The moment a coherent change lands, push it. Do NOT hold work back with the reasoning that you'll "finish the task then add and push." There is no finishing-then-pushing phase. Every edit is followed by add → commit → push, in that order, immediately. **Before you call any task complete, everything is already pushed.**
 
 This applies to:
 - Every change, no matter how small. A one-line typo fix gets pushed. A renamed variable gets pushed.
@@ -58,10 +74,13 @@ A broken tree because you skipped a pull is on you.
 Other agents' uncommitted work is not a reason to hold yours back. If `git status` shows work that isn't yours, `git add .` and commit it, with a message that says whose it is and whether it builds. Do not leave another agent's changes sitting uncommitted.
 
 ## Summary
+- **Why:** a coding agent will make mistakes, and every commit is the revert point that saves the work. No commit, no undo.
 - Commit directly to `main` — never branch unless asked.
 - Add, commit, push — every change, every time, the moment it lands.
 - Never defer a push waiting for the task to be "complete." WIP commits are fine; say so in the message.
+- Multiple commits per task is normal and expected when the work needs them.
 - Untracked new files and sub-agent output get pushed too.
+- **A task is not complete until everything is pushed.**
 - Commit messages: 6-12 words, human, specific.
 - No repo configured: stop and ask.
 - `reset` / `restore` / `push --force`: forbidden without explicit permission.
