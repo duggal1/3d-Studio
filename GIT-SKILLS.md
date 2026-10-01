@@ -67,14 +67,16 @@ Never commit secrets — `.env` files, API keys, tokens, credentials. If somethi
 Diff, log, stash, checkout, pull — whatever the task needs. The forbidden list above is the entire boundary. Nothing else is restricted. A branch, PR, or merge happens only when explicitly asked for.
 
 ## You're Not Working Alone
-Other agents are in this repo. Before you start work, pull. Before you push, `git status` and pull again — if someone else's commits landed, merge them in cleanly rather than stomping over them.
+There are at least five to ten frontier coding models in this repo at any moment, and you are one of them. Two, sometimes more, may be on the same task. Another may be editing a file you are editing right now.
+
+Before you start work, pull. Before you push, `git status` and pull again — if someone else's commits landed, merge them in cleanly rather than stomping over them. Read `git log` when something looks unfamiliar; it may be a coworker's work, not a regression.
 
 A broken tree because you skipped a pull is on you.
 
 Other agents' uncommitted work is not a reason to hold yours back. If `git status` shows work that isn't yours, `git add .` and commit it, with a message that says whose it is and whether it builds. Do not leave another agent's changes sitting uncommitted.
 
 ## Summary
-- **Why:** a coding agent will make mistakes, and every commit is the revert point that saves the work. No commit, no undo.
+- **Why:** five to ten frontier coding models share this repo. Mistakes will happen and some won't be noticed. Every commit is the shared, revertable record that makes them recoverable. No commit, no undo.
 - Commit directly to `main` — never branch unless asked.
 - Add, commit, push — every change, every time, the moment it lands.
 - Never defer a push waiting for the task to be "complete." WIP commits are fine; say so in the message.

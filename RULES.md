@@ -476,7 +476,21 @@ Testing should maximize **confidence per meaningful test**, not test volume.
 
 Research should maximize **decision-changing evidence**, not browser activity.
 
-## 15. Git Commit Rules — Commit Directly to Main, Every Task
+## 15. Git Commit Rules — Commit Directly to Main, Every Change
+
+### Why — Read First
+
+**You are a frontier coding model, and you are not alone in this repo.**
+
+At least five to ten frontier coding models are working this same codebase right now. Sometimes two are on it, sometimes more. Sometimes you will land a change while another model is mid-edit in the same file. You never get to assume you are alone.
+
+That is the whole reason for this section. A shared repo with ten models in it survives only if every change is a discrete, revertable commit. When something breaks, whoever caused it may not have noticed, may have finished, or may not exist anymore. The commit history is the only shared memory that outlives any individual run. Your commit is how your coworker learns what you touched and how anyone walks it back.
+
+The failure mode is specific: you make a change you do not notice is wrong, you leave it uncommitted, and it silently blends into someone else's work. Nobody can isolate it, so nobody can revert it, and a real project carries the damage.
+
+This is not about commit counts and not about looking busy. A tidy history is a good side effect and a good impression. The actual reason: **multiple frontier models edit one repo simultaneously, mistakes will happen, and history is the only thing that makes them recoverable.** It has to exist before the mistake does.
+
+### The Mechanics
 
 Every change gets added, committed, and pushed. Directly to `main`. No branches by default:
 
@@ -486,7 +500,7 @@ git commit -m "message"
 git push
 ```
 
-**Commit as you go. Not at the end.** The moment a coherent change lands, push it. There is no "finish the task, then add and push" phase — that reasoning is explicitly wrong. Every edit is followed by add → commit → push, in that order, immediately.
+**Commit as you go. Not at the end.** The moment a coherent change lands, push it. There is no "finish the task, then add and push" phase — that reasoning is explicitly wrong. Every edit is followed by add → commit → push, in that order, immediately. **Before you call any task complete, everything is already pushed.** If you finish a task with uncommitted changes, you have not finished the task.
 
 This includes:
 - Every change, no matter how small. A one-line typo fix gets pushed. A renamed variable gets pushed. No "too minor to commit."
@@ -533,9 +547,9 @@ Never commit secrets — `.env` files, API keys, tokens, credentials. If a commi
 
 Everything else is fair game: diff, log, stash, checkout, pull — whatever the task needs. The forbidden list above is the entire boundary. A branch, PR, or merge happens only when explicitly asked for.
 
-You're not working alone. Other agents touch this repo too. Before starting work, pull. Before pushing, check `git status` and pull again — merge others' commits cleanly instead of stomping them. A broken tree because you skipped a pull is on you.
+You're not working alone. There are at least five to ten frontier coding models in this repo at any moment. Before starting work, pull. Before pushing, check `git status` and pull again — merge others' commits cleanly instead of stomping them. Read `git log` when something looks unfamiliar; it may be a coworker's work, not a regression. A broken tree because you skipped a pull is on you.
 
-Other agents' uncommitted work is not a reason to hold yours back. If `git status` shows work that isn't yours, `git add .` and commit it, with a message that says whose it is and whether it builds. Do not leave another agent's changes sitting uncommitted.
+Other agents' uncommitted work is not a reason to hold yours back. If `git status` shows work that isn't yours, `git add .` and commit it, with a message that says whose it is and whether it builds. Do not leave another agent's changes sitting uncommitted — they may have finished, and you are the one who finds it.
 
 ## Core Standard
 
