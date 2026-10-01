@@ -1,4 +1,4 @@
-# Harshit Studio
+# 3d Studio
 
 A local-first browser 3D asset studio built with Next.js, React, TypeScript, Tailwind CSS, Three.js, React Three Fiber, and Drei.
 
