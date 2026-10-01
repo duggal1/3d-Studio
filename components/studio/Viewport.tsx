@@ -22,8 +22,10 @@ import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import { planCinematicShots } from "@/lib/cinematic";
 import { specularGlossinessPlugin } from "@/lib/gltf-specular-glossiness";
 import { buildMetadata, disposeScene } from "@/lib/metadata";
+import { captureStill } from "@/lib/stills";
 import { installThreeClockCompat } from "@/lib/three-compat";
 import { resolveNestedTransmission } from "@/lib/transmission-nesting";
 
@@ -36,6 +38,8 @@ import type {
   LoopMode,
   PlaybackSnapshot,
   RenderQuality,
+  StillFormat,
+  StillShot,
 } from "@/types/studio";
 
 // Texture filtering cost scales linearly with anisotropy and the hardware
@@ -43,6 +47,11 @@ import type {
 // angles that matter and halves worst-case texture sampling on floor/ground
 // planes, which are the usual fill-rate bottleneck in these scenes.
 const MAX_ANISOTROPY = 8;
+
+// Demo stills are fixed 16:9 at 1600px. Big enough to judge a shot, small
+// enough that five of them encode without a visible wait.
+const STILL_WIDTH = 1600;
+const STILL_HEIGHT = 900;
 
 /**
  * Idle render-resolution target per quality tier.
@@ -168,8 +177,10 @@ function ModelRuntime({
 }: ViewportProps & {
   controlsRef: MutableRefObject<OrbitControlsImpl | null>;
 }) {
-  const { camera, gl, invalidate } = useThree();
+  const { camera, gl, scene, invalidate } = useThree();
   const [model, setModel] = useState<LoadedModel | null>(null);
+  const sceneRef = useRef<THREE.Group | null>(null);
+  const shootTokenRef = useRef(0);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const clipsRef = useRef<THREE.AnimationClip[]>([]);
   const activeActionRef = useRef<THREE.AnimationAction | null>(null);
@@ -342,6 +353,48 @@ function ModelRuntime({
         });
       },
       cancelSequence,
+      async shoot(count, format, quality) {
+        const group = sceneRef.current;
+        const perspective = camera instanceof THREE.PerspectiveCamera ? camera : null;
+        if (!group || !perspective) return [];
+
+        cancelSequence();
+        const token = shootTokenRef.current + 1;
+        shootTokenRef.current = token;
+
+        const bounds = new THREE.Box3().setFromObject(group);
+        if (bounds.isEmpty()) return [];
+
+        const viewport = gl.getSize(new THREE.Vector2());
+        const aspect = viewport.y > 0 ? viewport.x / viewport.y : 1;
+        const plan = planCinematicShots(group, bounds, count, aspect);
+        const shots: StillShot[] = [];
+
+        for (const [index, shot] of plan.entries()) {
+          if (shootTokenRef.current !== token) break;
+          shots.push({
+            index,
+            label: shot.label,
+            kind: shot.kind,
+            blob: await captureStill({
+              renderer: gl,
+              scene,
+              camera: perspective,
+              position: shot.position,
+              target: shot.target,
+              fov: shot.fov,
+              width: STILL_WIDTH,
+              height: STILL_HEIGHT,
+              format,
+              quality,
+            }),
+            width: STILL_WIDTH,
+            height: STILL_HEIGHT,
+          });
+        }
+
+        return shots;
+      },
     }),
     // The exposed methods intentionally use refs so the handle stays stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -496,7 +549,10 @@ function ModelRuntime({
   if (!model) return null;
 
   return (
-    <group position={[-model.center.x, -model.center.y, -model.center.z]}>
+    <group
+      ref={sceneRef}
+      position={[-model.center.x, -model.center.y, -model.center.z]}
+    >
       <primitive object={model.gltf.scene} />
     </group>
   );

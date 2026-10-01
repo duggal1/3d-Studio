@@ -8,6 +8,8 @@ import type {
   LoopMode,
   PlaybackSnapshot,
   RenderQuality,
+  ShotPreview,
+  StillFormat,
 } from "@/types/studio";
 
 interface FilePanelProps {
@@ -99,6 +101,112 @@ export function AnimationPanel({
             </button>
           );
         })}
+      </div>
+    </section>
+  );
+}
+
+interface ShotPanelProps {
+  shots: ShotPreview[];
+  busy: boolean;
+  count: number;
+  format: StillFormat;
+  formats: StillFormat[];
+  onCount: (count: number) => void;
+  onFormat: (format: StillFormat) => void;
+  onRetake: () => void;
+  onDownload: (index: number) => void;
+  onDownloadAll: () => void;
+}
+
+export function ShotPanel({
+  shots,
+  busy,
+  count,
+  format,
+  formats,
+  onCount,
+  onFormat,
+  onRetake,
+  onDownload,
+  onDownloadAll,
+}: ShotPanelProps) {
+  return (
+    <section className="glass pointer-events-auto absolute bottom-4 left-4 w-[268px] overflow-hidden rounded-none">
+      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2 text-[11px] text-white/52">
+        <span>Cinematic shots</span>
+        <span className="tabular-nums">{busy ? "rendering" : shots.length}</span>
+      </div>
+
+      {shots.length > 0 ? (
+        <div className="thin-scrollbar grid max-h-[38vh] grid-cols-2 gap-1.5 overflow-y-auto p-2">
+          {shots.map((shot) => (
+            <button
+              key={shot.index}
+              type="button"
+              title={`${shot.label} — download`}
+              onClick={() => onDownload(shot.index)}
+              className="group relative block aspect-video cursor-pointer overflow-hidden rounded-none border border-white/10 transition-colors duration-150 hover:border-white/28"
+            >
+              {/* Object URLs of local blobs: next/image adds no value here. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={shot.url}
+                alt={shot.label}
+                className="h-full w-full object-cover"
+              />
+              <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-1 text-left text-[10px] text-white/78">
+                {shot.label}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-white/10 px-2.5 py-2">
+        <label className="flex items-center gap-1.5 text-[11px] text-white/46">
+          <span className="hidden sm:inline">Shots</span>
+          <select
+            className="ui-select h-[26px]"
+            value={count}
+            disabled={busy}
+            aria-label="Number of cinematic shots"
+            onChange={(event) => onCount(Number(event.target.value))}
+          >
+            {[3, 4, 5, 6, 8].map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex items-center gap-1.5 text-[11px] text-white/46">
+          <span className="hidden sm:inline">Format</span>
+          <select
+            className="ui-select h-[26px]"
+            value={format}
+            disabled={busy}
+            aria-label="Still image format"
+            onChange={(event) => onFormat(event.target.value as StillFormat)}
+          >
+            {formats.map((value) => (
+              <option key={value} value={value}>{value === "jpeg" ? "JPEG" : "WebP"}</option>
+            ))}
+          </select>
+        </label>
+
+        <div className="ml-auto flex gap-2">
+          <button className="ui-button min-h-[26px] rounded-none" type="button" disabled={busy} onClick={onRetake}>
+            {busy ? "Rendering…" : "Retake"}
+          </button>
+          <button
+            className="ui-button min-h-[26px] rounded-none"
+            type="button"
+            disabled={busy || shots.length === 0}
+            onClick={onDownloadAll}
+          >
+            Download all
+          </button>
+        </div>
       </div>
     </section>
   );

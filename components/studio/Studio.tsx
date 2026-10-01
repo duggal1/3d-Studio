@@ -12,6 +12,7 @@ import {
 } from "react";
 import { createLocalAssetBundle } from "@/lib/asset";
 import { canRecordCanvas, downloadBlob, recordCanvasSequence } from "@/lib/recording";
+import { availableStillFormats, downloadStill } from "@/lib/stills";
 import type {
   AnimationInfo,
   AnimationRuntimeHandle,
@@ -20,6 +21,8 @@ import type {
   LoopMode,
   PlaybackSnapshot,
   RenderQuality,
+  ShotPreview,
+  StillFormat,
 } from "@/types/studio";
 import {
   AnimationPanel,
@@ -29,6 +32,7 @@ import {
   FilePanel,
   LoadingIndicator,
   PlaybackBar,
+  ShotPanel,
   ViewControls,
 } from "./StudioUI";
 
@@ -63,12 +67,27 @@ export default function Studio() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [quality, setQuality] = useState<RenderQuality>("balanced");
   const [dpr, setDpr] = useState(1);
+  const [shots, setShots] = useState<ShotPreview[]>([]);
+  const [shooting, setShooting] = useState(false);
+  const [shotCount, setShotCount] = useState(5);
+  const [shotFormat, setShotFormat] = useState<StillFormat>("webp");
+  const shotBlobsRef = useRef(new Map<number, Blob>());
   const recorderSupported = useMemo(() => canRecordCanvas(), []);
+  const shotFormats = useMemo(() => availableStillFormats(), []);
+
+  const clearShots = useCallback(() => {
+    setShots((current) => {
+      for (const shot of current) URL.revokeObjectURL(shot.url);
+      return [];
+    });
+    shotBlobsRef.current.clear();
+  }, []);
 
   const loadFiles = useCallback((files: File[]) => {
     try {
       const nextAsset = createLocalAssetBundle(files);
       runtimeRef.current?.cancelSequence();
+      clearShots();
       setAsset(nextAsset);
       setMetadata(null);
       setAnimations([]);
@@ -80,7 +99,7 @@ export default function Studio() {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not open these files.");
     }
-  }, []);
+  }, [clearShots]);
 
   const openPicker = useCallback(() => inputRef.current?.click(), []);
 
@@ -129,6 +148,65 @@ export default function Studio() {
       setError("Fullscreen mode is not available in this browser context.");
     }
   }, []);
+
+  const shoot = useCallback(async (count: number) => {
+    const runtime = runtimeRef.current;
+    if (!runtime || shooting) return;
+
+    setShooting(true);
+    setError(null);
+
+    try {
+      let captured = await runtime.shoot(count, shotFormat, 0.92);
+
+      // The first attempt can land before the model group is mounted in the
+      // scene graph, in which case the runtime has nothing to shoot yet.
+      for (let retry = 0; retry < 8 && captured.length === 0; retry += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+        captured = await runtime.shoot(count, shotFormat, 0.92);
+      }
+
+      if (captured.length === 0) {
+        setError("No stills could be rendered for this model.");
+        return;
+      }
+
+      clearShots();
+      shotBlobsRef.current = new Map(captured.map((shot) => [shot.index, shot.blob]));
+      setShots(captured.map((shot) => ({
+        index: shot.index,
+        label: shot.label,
+        kind: shot.kind,
+        url: URL.createObjectURL(shot.blob),
+      })));
+    } catch (shootError) {
+      setError(shootError instanceof Error ? shootError.message : "Could not render the stills.");
+    } finally {
+      setShooting(false);
+    }
+  }, [clearShots, shotFormat, shooting]);
+
+  // Shot list is refreshed automatically on a fresh model so the panel is
+  // never empty once something is loaded.
+  useEffect(() => {
+    if (!metadata || shots.length > 0 || shooting) return;
+    void shoot(shotCount);
+  }, [metadata, shots.length, shooting, shoot, shotCount]);
+
+  const downloadShot = useCallback((index: number) => {
+    const blob = shotBlobsRef.current.get(index);
+    if (!blob) return;
+    const stem = (metadata?.fileName ?? "model").replace(/\.(glb|gltf)$/i, "");
+    const shot = shots.find((candidate) => candidate.index === index);
+    const label = (shot?.label ?? "shot").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    downloadStill(blob, `${stem}-${index + 1}-${label}`, shotFormat);
+  }, [metadata?.fileName, shotFormat, shots]);
+
+  const downloadAllShots = useCallback(() => {
+    for (const shot of [...shots].sort((a, b) => a.index - b.index)) {
+      downloadShot(shot.index);
+    }
+  }, [downloadShot, shots]);
 
   const createVideo = useCallback(async () => {
     const runtime = runtimeRef.current;
@@ -230,6 +308,24 @@ export default function Studio() {
         {!asset ? <EmptyState onOpen={openPicker} /> : null}
 
         {metadata ? <FilePanel metadata={metadata} onOpen={openPicker} /> : null}
+
+        {shots.length > 0 || shooting ? (
+          <ShotPanel
+            shots={shots}
+            busy={shooting}
+            count={shotCount}
+            format={shotFormat}
+            formats={shotFormats}
+            onCount={(value) => {
+              setShotCount(value);
+              void shoot(value);
+            }}
+            onFormat={setShotFormat}
+            onRetake={() => void shoot(shotCount)}
+            onDownload={downloadShot}
+            onDownloadAll={downloadAllShots}
+          />
+        ) : null}
 
         <ViewControls
           canReset={Boolean(metadata) && !recording}

@@ -2,6 +2,26 @@ export type LoopMode = "once" | "repeat" | "pingpong";
 
 export type RenderQuality = "performance" | "balanced" | "sharp";
 
+// PNG is intentionally absent: a lit 3D still is roughly 8x heavier lossless
+// for no visible gain.
+export type StillFormat = "webp" | "jpeg";
+
+export interface StillShot {
+  index: number;
+  label: string;
+  kind: "interior" | "exterior";
+  blob: Blob;
+  width: number;
+  height: number;
+}
+
+export interface ShotPreview {
+  index: number;
+  label: string;
+  kind: "interior" | "exterior";
+  url: string;
+}
+
 export interface AnimationInfo {
   index: number;
   name: string;
@@ -54,4 +74,5 @@ export interface AnimationRuntimeHandle {
   setLoop: (mode: LoopMode) => void;
   playAll: () => Promise<void>;
   cancelSequence: () => void;
+  shoot: (count: number, format: StillFormat, quality: number) => Promise<StillShot[]>;
 }
