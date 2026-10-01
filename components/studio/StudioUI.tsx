@@ -110,12 +110,13 @@ export function AnimationPanel({
 interface ShotPanelProps {
   shots: ShotPreview[];
   busy: boolean;
+  canShoot: boolean;
   count: number;
   format: StillFormat;
   formats: StillFormat[];
+  onShoot: () => void;
   onCount: (count: number) => void;
   onFormat: (format: StillFormat) => void;
-  onRetake: () => void;
   onDownload: (index: number) => void;
   onDownloadAll: () => void;
 }
@@ -123,12 +124,13 @@ interface ShotPanelProps {
 export function ShotPanel({
   shots,
   busy,
+  canShoot,
   count,
   format,
   formats,
+  onShoot,
   onCount,
   onFormat,
-  onRetake,
   onDownload,
   onDownloadAll,
 }: ShotPanelProps) {
@@ -196,8 +198,18 @@ export function ShotPanel({
         </label>
 
         <div className="ml-auto flex gap-2">
-          <button className="ui-button min-h-[26px] rounded-none" type="button" disabled={busy} onClick={onRetake}>
-            {busy ? "Rendering…" : "Retake"}
+          <button
+            className="ui-button min-h-[26px] rounded-none"
+            type="button"
+            disabled={!canShoot}
+            title={
+              busy
+                ? "Rendering stills"
+                : "Probe the model for walkable space and render cinematic stills"
+            }
+            onClick={onShoot}
+          >
+            {busy ? "Rendering…" : shots.length > 0 ? "Retake" : "Take shots"}
           </button>
           <button
             className="ui-button min-h-[26px] rounded-none"

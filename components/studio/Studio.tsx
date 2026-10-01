@@ -201,12 +201,10 @@ export default function Studio() {
     }
   }, [clearShots, shotFormat, shooting]);
 
-  // Shot list is refreshed automatically on a fresh model so the panel is
-  // never empty once something is loaded.
-  useEffect(() => {
-    if (!metadata || shots.length > 0 || shooting) return;
-    void shoot(shotCount);
-  }, [metadata, shots.length, shooting, shoot, shotCount]);
+  // Deliberately not automatic. Probing the scene for walkable interior space
+  // costs thousands of raycasts against the whole mesh, which on a two-million
+  // triangle asset is a multi-second freeze the moment a model loads. The user
+  // asks for shots explicitly instead.
 
   const downloadShot = useCallback((index: number) => {
     const blob = shotBlobsRef.current.get(index);
@@ -327,19 +325,17 @@ export default function Studio() {
 
 
 
-        {shots.length > 0 || shooting ? (
+        {metadata ? (
           <ShotPanel
             shots={shots}
             busy={shooting}
+            canShoot={Boolean(metadata) && !shooting}
             count={shotCount}
             format={shotFormat}
             formats={shotFormats}
-            onCount={(value) => {
-              setShotCount(value);
-              void shoot(value);
-            }}
+            onShoot={() => void shoot(shotCount)}
+            onCount={setShotCount}
             onFormat={setShotFormat}
-            onRetake={() => void shoot(shotCount)}
             onDownload={downloadShot}
             onDownloadAll={downloadAllShots}
           />
