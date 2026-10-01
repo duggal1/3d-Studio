@@ -1,4 +1,9 @@
 import * as THREE from "three";
+import { acceleratedRaycast, MeshBVH } from "three-mesh-bvh";
+
+// Without this patch the geometry can own a bounds tree but Mesh.raycast never
+// consults it, and every query stays a linear triangle scan.
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 export type ShotKind = "interior" | "exterior";
 
@@ -36,6 +41,17 @@ const GRID_Z = 9;
 
 const MIN_INTERIOR_POINTS = 3;
 const MAX_INTERIOR_POINTS = 6;
+
+// Ceiling on raycast probes. 24 rays each, against every triangle in the
+// model: at 48 probes that is the difference between a visible pause and a
+// hung tab on a multi-million triangle mesh. Two interior points is already
+// enough to tell an enclosed model from an open one.
+const MAX_PROBES = 48;
+
+// First-pass sweep. Six rays is enough to tell "in open air" from "boxed in",
+// which is the only question this pass has to answer.
+const COARSE_RAYS = 6;
+const COARSE_THRESHOLD = 0.5;
 const INTERIOR_FOV = 62;
 const EYE_HEIGHT_RATIO = 0.58;
 
@@ -66,6 +82,33 @@ const RAY_DIRECTIONS = buildDirections(ENCLOSURE_DIRECTIONS);
 const raycaster = new THREE.Raycaster();
 const UP = new THREE.Vector3(0, 1, 0);
 
+/**
+ * A bounding-volume hierarchy turns each raycast from a linear scan over every
+ * triangle into a logarithmic tree descent. Probing a two-million triangle
+ * model without one takes seconds of blocked main thread; with one it is
+ * effectively instant. The tree is attached to the geometry rather than to the
+ * raycaster so it is disposed alongside the geometry.
+ */
+export function attachRaycastAcceleration(group: THREE.Object3D): void {
+  group.traverse((object) => {
+    // Constructed directly rather than via the package's computeBoundsTree()
+    // extension helper, which is only present once ExtensionUtilities has
+    // patched the prototypes. Called conditionally because a geometry may
+    // already carry a tree.
+    if (object instanceof THREE.Mesh && object.geometry && !object.geometry.boundsTree) {
+      object.geometry.boundsTree = new MeshBVH(object.geometry);
+    }
+  });
+}
+
+export function detachRaycastAcceleration(group: THREE.Object3D): void {
+  group.traverse((object) => {
+    if (object instanceof THREE.Mesh && object.geometry) {
+      object.geometry.boundsTree = null;
+    }
+  });
+}
+
 interface RayProbe {
   hits: number;
   bestDirection: THREE.Vector3;
@@ -79,18 +122,25 @@ interface RayProbe {
  * Fires the shared ray set from one point and reports how enclosed it is, the
  * most open direction (for aiming), and how much clearance it has in every
  * direction (for rejecting points buried in a wall).
+ *
+ * `count` caps how many of the shared directions are fired. The cheap first
+ * pass only needs to know whether the point is inside something at all, and on
+ * a two-million triangle model the difference between 6 rays and 24 across 48
+ * probes is the difference between instant and several seconds.
  */
 function probe(
   group: THREE.Object3D,
   point: THREE.Vector3,
   range: number,
+  count = RAY_DIRECTIONS.length,
 ): RayProbe {
   let hits = 0;
   let bestReach = -1;
   let minReach = Number.POSITIVE_INFINITY;
   let bestDirection = RAY_DIRECTIONS[0];
 
-  for (const direction of RAY_DIRECTIONS) {
+  for (let index = 0; index < count; index += 1) {
+    const direction = RAY_DIRECTIONS[index];
     raycaster.set(point, direction);
     raycaster.near = 0;
     raycaster.far = range;
@@ -105,6 +155,17 @@ function probe(
         bestDirection = direction;
       }
     }
+  }
+
+  if (count < RAY_DIRECTIONS.length) {
+    // A partial sweep cannot judge enclosure or find the best axis, so report
+    // only whether the point is plausibly enclosed.
+    return {
+      hits: hits / count,
+      bestDirection,
+      bestReach: bestReach < 0 ? range : bestReach,
+      minReach: Number.isFinite(minReach) ? minReach : range,
+    };
   }
 
   return {
@@ -139,6 +200,7 @@ function findInteriorPoints(
   // a wall (where the shortest ray is ~0) does not.
   const minClearance = Math.max(range * 0.004, 0.0005);
   const found: InteriorPoint[] = [];
+  let probes = 0;
 
   for (const yStep of [0.5, 0.4, 0.6]) {
     for (let zStep = 0; zStep < GRID_Z; zStep += 1) {
@@ -158,6 +220,19 @@ function findInteriorPoints(
         if (found.some((entry) => entry.position.distanceTo(candidate) < minSeparation)) {
           continue;
         }
+
+        probes += 1;
+        // Hard budget. Each probe is 24 rays against every triangle in the
+        // model, so an unbounded sweep over a dense grid is a multi-second
+        // freeze on a real asset. Bailing out early still yields a usable
+        // shot list on any model that finds interior space quickly, and the
+        // open-air case bails on the first grid row anyway.
+        if (probes > MAX_PROBES) return found;
+
+        // Cheap sweep first. An open-air point misses most of these six rays
+        // and never pays for the full set.
+        const coarse = probe(group, candidate, range, COARSE_RAYS);
+        if (coarse.hits < COARSE_THRESHOLD) continue;
 
         const result = probe(group, candidate, range);
         if (result.hits < ENCLOSURE_THRESHOLD) continue;

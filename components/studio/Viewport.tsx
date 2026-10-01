@@ -22,7 +22,7 @@ import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { planCinematicShots } from "@/lib/cinematic";
+import { attachRaycastAcceleration, detachRaycastAcceleration, planCinematicShots } from "@/lib/cinematic";
 import { specularGlossinessPlugin } from "@/lib/gltf-specular-glossiness";
 import { buildMetadata, disposeScene } from "@/lib/metadata";
 import {
@@ -458,6 +458,10 @@ function ModelRuntime({
         // lib/transmission-nesting.ts.
         resolveNestedTransmission(gltf.scene);
 
+        // Built once per load so cinematic shot probing is a tree descent
+        // rather than a linear scan over every triangle.
+        attachRaycastAcceleration(gltf.scene);
+
         const bounds = new THREE.Box3().setFromObject(gltf.scene);
         const center = bounds.getCenter(new THREE.Vector3());
         const size = bounds.getSize(new THREE.Vector3());
@@ -504,7 +508,10 @@ function ModelRuntime({
       clipsRef.current = [];
       activeActionRef.current = null;
       setModel(null);
-      if (loadedScene) disposeScene(loadedScene);
+      if (loadedScene) {
+        detachRaycastAcceleration(loadedScene);
+        disposeScene(loadedScene);
+      }
       draco.dispose();
       ktx2.dispose();
       asset.release();
@@ -613,23 +620,24 @@ const StudioLighting = memo(function StudioLighting({
     camera.far = distance * 2.2;
     camera.updateProjectionMatrix();
 
-    // A denser map at higher tiers: the extra pixels are already being paid
-    // for, and the shadow is the one pass that shows it most obviously.
-    const resolution = quality === "8k" ? 4096 : 2048;
+    // The map is rendered once and reused. autoUpdate would re-render the
+    // whole scene depth every frame, which on a two-million triangle asset is a
+    // second full geometry pass per frame and was the single largest source of
+    // frame time. The light and the model are both static between camera
+    // moves, so the depth buffer only needs to be rebuilt when one of them
+    // changes.
+    const resolution = quality === "8k" ? 2048 : 1024;
     if (key.shadow.mapSize.width !== resolution) {
       key.shadow.mapSize.setScalar(resolution);
       key.shadow.map?.dispose();
       key.shadow.map = null;
+      key.shadow.needsUpdate = true;
     }
 
-    // shadow.intensity scales the sampled shadow directly (Three r168+), so
-    // the slider works without toggling castShadow and re-triggering a
-    // recompile of every material in the scene.
+    key.shadow.autoUpdate = false;
     key.shadow.intensity = settings.shadow;
-    key.shadow.needsUpdate = true;
-    key.shadow.autoUpdate = true;
     key.castShadow = settings.shadow > 0.001;
-    key.intensity = 2.3;
+    if (key.castShadow) key.shadow.needsUpdate = true;
   }, [settings.shadow, quality, refitToken, scene]);
 
   return (
@@ -775,7 +783,10 @@ export default function Viewport(props: ViewportProps) {
         // because the budgeted 2k-8k framebuffer already handles most edge
         // aliasing on its own.
         gl.shadowMap.enabled = true;
-        gl.shadowMap.type = THREE.PCFSoftShadowMap;
+        // PCF rather than PCFSoft. Soft costs roughly an order of magnitude
+        // more taps per fragment and every shadowed pixel pays it every frame;
+        // at 1024-2048 over a fitted frustum the difference is not visible.
+        gl.shadowMap.type = THREE.PCFShadowMap;
       }}
     >
       <CameraFriction controlsRef={controlsRef} />
